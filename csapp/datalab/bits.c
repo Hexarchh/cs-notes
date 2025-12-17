@@ -253,7 +253,7 @@ int isPositive(int x) {
  *   Rating: 3
  */
 int isLessOrEqual(int x, int y) {
-  return 2;
+  return ((x+(~y+1))>>31)+1;
 }
 /*
  * ilog2 - return floor(log base 2 of x), where x > 0
@@ -263,7 +263,23 @@ int isLessOrEqual(int x, int y) {
  *   Rating: 4
  */
 int ilog2(int x) {
-  return 2;
+   int r = 0;
+
+    r = (!!(x >> 16)) << 4;
+    x >>= r;
+
+    r |= (!!(x >> 8)) << 3;
+    x >>= (!!(x >> 8)) << 3;
+
+    r |= (!!(x >> 4)) << 2;
+    x >>= (!!(x >> 4)) << 2;
+
+    r |= (!!(x >> 2)) << 1;
+    x >>= (!!(x >> 2)) << 1;
+
+    r |= (!!(x >> 1));
+
+    return r;
 }
 /* 
  * float_neg - Return bit-level equivalent of expression -f for
@@ -277,7 +293,13 @@ int ilog2(int x) {
  *   Rating: 2
  */
 unsigned float_neg(unsigned uf) {
- return 2;
+    unsigned exp = uf & 0x7F800000;
+    unsigned frac = uf & 0x007FFFFF;
+
+    if (exp == 0x7F800000 && frac != 0) {
+        return uf;
+    }
+    return uf ^ 0x80000000;
 }
 /* 
  * float_i2f - Return bit-level equivalent of expression (float) x
@@ -289,7 +311,57 @@ unsigned float_neg(unsigned uf) {
  *   Rating: 4
  */
 unsigned float_i2f(int x) {
-  return 2;
+      unsigned sign = 0;
+    unsigned abs;
+    unsigned exp;
+    unsigned frac;
+    int shift;
+
+    /* special case: zero */
+    if (x == 0) {
+        return 0;
+    }
+
+    /* sign and absolute value */
+    if (x < 0) {
+        sign = 0x80000000;
+        abs = -x;
+    } else {
+        abs = x;
+    }
+
+    /* find highest 1 bit */
+    shift = 31;
+    while ((abs & (1u << shift)) == 0) {
+        shift--;
+    }
+
+    /* exponent */
+    exp = shift + 127;
+
+    /* fraction */
+    if (shift <= 23) {
+        frac = abs << (23 - shift);
+    } else {
+        unsigned extra = abs & ((1u << (shift - 23)) - 1);
+        frac = abs >> (shift - 23);
+
+        /* round to nearest even */
+        if (extra > (1u << (shift - 24)) ||
+           (extra == (1u << (shift - 24)) && (frac & 1))) {
+            frac++;
+        }
+
+        /* handle fraction overflow */
+        if (frac >> 24) {
+            exp++;
+            frac >>= 1;
+        }
+    }
+
+    frac &= 0x007FFFFF;
+
+    return sign | (exp << 23) | frac;
 }
 /* 
  * float_twice - Return bit-level equivalent of expression 2*f for
@@ -303,5 +375,33 @@ unsigned float_i2f(int x) {
  *   Rating: 4
  */
 unsigned float_twice(unsigned uf) {
-  return 2;
+      unsigned sign = uf & 0x80000000;
+    unsigned exp  = uf & 0x7F800000;
+    unsigned frac = uf & 0x007FFFFF;
+
+    /* NaN or infinity */
+    if (exp == 0x7F800000) {
+        return uf;
+    }
+
+    /* denormalized number */
+    if (exp == 0) {
+        frac <<= 1;
+        /* may become normalized */
+        if (frac & 0x00800000) {
+            exp = 0x00800000;
+            frac &= 0x007FFFFF;
+        }
+        return sign | exp | frac;
+    }
+
+    /* normalized number */
+    exp += 0x00800000;
+
+    /* overflow to infinity */
+    if (exp == 0x7F800000) {
+        frac = 0;
+    }
+
+    return sign | exp | frac;
 }
